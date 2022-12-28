@@ -76,7 +76,7 @@ DSL).
 
 ```
 Message :: <character(s)-without-space> | "<characters-including-space>"
-Block   :: [ Message ] | [ Body ]
+Block   :: [ Message ] | [ block ]
 ```
 
 The syntax is simple. A message is any body of characters that isn't a single open or closing bracket.
