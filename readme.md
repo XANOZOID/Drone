@@ -24,9 +24,7 @@ For *this specific* iteration of combining the above ideas, currently called Dro
 ### Part 1: Everything is an object
 Much like Self/Smalltalk everything is an object. Objects basically behave the way you'd imagine they do in a
 prototypal language like Self - there are no classes. Objects in Drone are essentially nameless structures
-that can be interacted with through their exposed interface and prototype hierarchy. The interface of a Drone object is never private
-- however encapsulation of data/behavior can still be achieved through a technique *similar* to how closures work
-in JavaScript.
+that can be interacted with through their exposed interface and prototype hierarchy. The interface of a Drone object is never private - however encapsulation of data/behavior can still be achieved through a technique *similar* to how closures work in JavaScript.
 
 When it is said that everything is an object though, everything *is* just an object and they all communicate with each other through
 messaging (if we can call it that). If implemented correctly, it will be objects and messaging all the way down - so interpretation 
