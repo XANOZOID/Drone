@@ -23,7 +23,7 @@ function dObject() {
         numberVal: 0,
         blockContent: [],
         primitive: (ctx)=>{}, // function that operates on context
-        onBody: null, // is a message object . . .
+        onBody: null, // is a message object . . . (acts like a interface)
         doesNotUnderstand: null, // is a message object
         interface: {}, // contains message blocks
         extern: null,
@@ -67,7 +67,8 @@ function dBlock(val) {
 
     obj.interface = {
         "run": dInterface(dPrimitive((ctx)=> {
-            executeBlock(obj, dContext())
+            var exCtx = executeBlock(obj, dContext());
+            ctx.stack = ctx.stack.concat(exCtx.stack);
         })),
         "run/current": dInterface(dPrimitive((ctx)=>{
             executeBlock(obj, dContext(ctx.scope, ctx.stack));
@@ -77,7 +78,7 @@ function dBlock(val) {
     obj.extern = {
         run: (stack) => { executeBlock(obj, dContext(null, stack || [] )); }
     };
-    
+
     return obj;
 }
 
@@ -179,37 +180,78 @@ function dConsoleObject() {
     return obj;
 }
 
+
 // TODO: Support prototypal inheritance
-function dBaseObject() {
+function dProto() {
     let obj = dObject();
 
-    // TODO: Support enclosing stack objects with special syntax
-    function colonObject() {
-        let obj = dObject();
-
-        obj.onBody = dInterface(dPrimitive((ctx)=>{
-            let wordBlock = ctx.stack.pop();
-            let name = wordBlock.blockContent.shift();
-            let nameBlock = dBlock(name);
-            ctx.stack.push(nameBlock);
-            ctx.stack.push(wordBlock);
-        }));
-
-        return obj;
-    }
-    
     obj.interface = {
-        ':': dInterface(dPrimitive((ctx)=>{
-            ctx.stack.push(colonObject());
-        })),
         // TODO: Create setters based on name - IE ":name"
         ';': dInterface(dPrimitive((ctx)=>{
             const def = ctx.stack.pop(); // block 2
-            const name = ctx.stack.pop(); // block 1
-            obj.interface[name.blockContent[0].stringVal] = def;
+            var name = def.blockContent.shift();
+            obj.interface[name.stringVal] = def;
+            // obj.interface[name.blockContent[0].stringVal] = def;
+            // throw "error: unimplemented";
         })),
         'self': dInterface(dPrimitive((ctx => ctx.stack.push(obj))))
     };
+
+    return obj;
+}
+
+function applyParams(ctx, block, startsWith, startsWithNot = "") {
+    var params = {};
+    // get everything that looks like @<word>
+    for (var i = 0; i < block.blockContent.length; i ++) {
+        var blockObj = block.blockContent[i];
+        if (blockObj.type == types.MESSAGE) {
+            var message = blockObj.stringVal;
+            if (message.startsWith(startsWith) && (!message.startsWith(startsWithNot) || startsWithNot == "" )) {
+                if (!params.hasOwnProperty(message)) {
+                    params[message] = ctx.stack.pop();
+                }
+                // remove the meta field from the block
+                block.blockContent.splice(i, 1);
+            }
+        }
+    }
+
+    // build the parameter names list
+    var paramList = [];
+    var paramStartLength = startsWith.length;
+    for (const key in params) {
+        if (params.hasOwnProperty(key)) {
+            paramList.push(key.substring(paramStartLength));
+        }
+    }
+
+    function applyParams(block) {
+        for (var i = 0; i < block.blockContent.length; i ++) {
+            var paramObj = block.blockContent[i];
+            if (paramObj.type == types.MESSAGE) {
+                var paramName = paramObj.stringVal;
+                if (paramList.indexOf(paramName) != -1) {
+                    paramObj.blockContent.push(params[startsWith+paramName])
+                }
+            }
+            else if (paramObj.type == types.BLOCK) {
+                applyParams(paramObj);
+            }
+        }
+    }
+    applyParams(block);
+}
+
+// TODO: Support enclosing stack objects with special syntax
+function colonObject() {
+    let obj = dObject();
+
+    obj.onBody = dInterface(dPrimitive((ctx)=>{
+        let wordBlock = ctx.stack.pop();
+        applyParams(ctx, wordBlock, "@", "@@");
+        ctx.stack.push(wordBlock);
+    }));
 
     return obj;
 }
@@ -226,7 +268,10 @@ function dBase() {
                 ctx.stack.push(dNumber(Number.parseFloat(arg1.stringVal)));
             } else if (arg1.stringVal.startsWith('"')) {
                 ctx.stack.push(dString(arg1.stringVal.substr(1, arg1.stringVal.length -2)))
-            } else {
+            } else if (arg1.blockContent.length != 0) {
+                ctx.stack.push(arg1.blockContent[0]);
+            }
+            else {
                 console.error("cannot respond to:", arg1);
             }
         } else {
@@ -235,8 +280,11 @@ function dBase() {
     }));
 
     obj.interface = {
-        "object": dInterface(dPrimitive((ctx)=>{
-            ctx.stack.push(dBaseObject());
+        ':': dInterface(dPrimitive((ctx)=>{
+            ctx.stack.push(colonObject());
+        })),
+        "proto": dInterface(dPrimitive((ctx)=>{
+            ctx.stack.push(dProto());
         })),
         "console": dInterface(dPrimitive((ctx)=> {
             ctx.stack.push(dConsoleObject());
@@ -347,6 +395,8 @@ function executeBlock(block, context) {
             scopePop
         };
     }
+    // Apply values for @@<identifier>
+    applyParams(ctx, message, "@@");
     ctx.messageStack.push(scopedMessage(message, 0, false));
     ctx.messageStackPosition.push(0);
     while (ctx.messageStack.length > 0) {
@@ -410,16 +460,18 @@ function executeBlock(block, context) {
             }
         }
     }
+    return ctx;
 }
 
 var code = `
-object [
+proto [
     : [ factorial dup 1 [ < ] [ 
         if [ dup [ 1- ] factorial [ * ] ]
     ] ] ;
-    5 factorial
+    55 factorial
+    12 5 : [ @five @@twelve five twelve [ + ] ] [ run/current ]
 ]
-console [ say ]
+console [ say say ]
 `;
 
 var block = stringToBlock(code);
