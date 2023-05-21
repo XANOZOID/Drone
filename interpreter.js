@@ -21,11 +21,12 @@ function dObject() {
         type: types.OBJECT,
         stringVal: "",
         numberVal: 0,
-        arrayVal: [],
+        blockContent: [],
         primitive: (ctx)=>{}, // function that operates on context
         onBody: null, // is a message object . . .
         doesNotUnderstand: null, // is a message object
-        messages: {}, // contains message blocks
+        interface: {}, // contains message blocks
+        extern: null,
     };
     return native;
 }
@@ -37,17 +38,46 @@ function dPrimitive(fn) {
     return obj;
 }
 
+// Interface is a block for interfaces but doesn't actually have an interface, unlike an actual block
+function dInterface(val) {
+    let obj = dObject();
+    obj.type = types.BLOCK;
+    if (val !== undefined) {
+        if (Array.isArray(val)) {
+            obj.blockContent = val;
+        } else {
+            obj.blockContent.push(val);
+        }
+    }
+
+    return obj;
+}
+
 // TODO: add language level interface with this object structure
 function dBlock(val) {
     let obj = dObject();
     obj.type = types.BLOCK;
     if (val !== undefined) {
         if (Array.isArray(val)) {
-            obj.arrayVal = val;
+            obj.blockContent = val;
         } else {
-            obj.arrayVal.push(val);
+            obj.blockContent.push(val);
         }
     }
+
+    obj.interface = {
+        "run": dInterface(dPrimitive((ctx)=> {
+            executeBlock(obj, dContext())
+        })),
+        "run/current": dInterface(dPrimitive((ctx)=>{
+            executeBlock(obj, dContext(ctx.scope, ctx.stack));
+        }))
+    };
+
+    obj.extern = {
+        run: (stack) => { executeBlock(obj, dContext(null, stack || [] )); }
+    };
+    
     return obj;
 }
 
@@ -61,11 +91,11 @@ function dMessage(key) {
 function dMute() {
     let obj = dObject();
     obj.type = types.OBJECT;
-    obj.onBody = dBlock(dPrimitive((ctx)=> {
+    obj.onBody = dInterface(dPrimitive((ctx)=> {
         // same as "ignore this entire message-block"
         ctx.stack.pop();
     }));
-    obj.messages = {};
+    obj.interface = {};
     return obj;
 }
 
@@ -74,13 +104,13 @@ function dBoolean(val) {
     obj.type = types.OBJECT;
     
     if (val) {
-        obj.messages["if"] = dBlock(dObject());
-        obj.messages["else"] = dBlock(dMute());
+        obj.interface["if"] = dInterface(dObject());
+        obj.interface["else"] = dInterface(dMute());
     } else {
-        obj.messages["if"] = dBlock(dMute());
-        obj.messages["else"] = dBlock(dObject());
+        obj.interface["if"] = dInterface(dMute());
+        obj.interface["else"] = dInterface(dObject());
     }
-    // TODO: add boolean logic messages
+    // TODO: add boolean logic interface
     return obj;
 }
 
@@ -90,29 +120,29 @@ function dNumber(val) {
     obj.numberVal = val;
 
     // TODO: complete the operations
-    obj.messages = {
-        "+": dBlock(dPrimitive((ctx) => {
+    obj.interface = {
+        "+": dInterface(dPrimitive((ctx) => {
             ctx.stack.push(dNumber(val + (ctx.stack.pop()).numberVal));
         })),
-        "-": dBlock(dPrimitive((ctx) => {
+        "-": dInterface(dPrimitive((ctx) => {
             ctx.stack.push(dNumber(val - (ctx.stack.pop()).numberVal));
         })),
-        "*": dBlock(dPrimitive((ctx) => {
+        "*": dInterface(dPrimitive((ctx) => {
             ctx.stack.push(dNumber(val * (ctx.stack.pop()).numberVal));
         })),
-        "/": dBlock(dPrimitive((ctx) => {
+        "/": dInterface(dPrimitive((ctx) => {
             ctx.stack.push(dNumber(val / (ctx.stack.pop()).numberVal));
         })),
         
-        "1-": dBlock(dPrimitive((ctx) => ctx.stack.push(dNumber(val - 1)) )),
+        "1-": dInterface(dPrimitive((ctx) => ctx.stack.push(dNumber(val - 1)) )),
 
-        "<": dBlock(dPrimitive((ctx) => {
+        "<": dInterface(dPrimitive((ctx) => {
             ctx.stack.push(dBoolean(val < (ctx.stack.pop()).numberVal));
         })),
-        ">": dBlock(dPrimitive((ctx) => {
+        ">": dInterface(dPrimitive((ctx) => {
             ctx.stack.push(dBoolean(val > (ctx.stack.pop()).numberVal));
         })),
-        "=": dBlock(dPrimitive((ctx) => {
+        "=": dInterface(dPrimitive((ctx) => {
             ctx.stack.push(dBoolean(val === (ctx.stack.pop()).numberVal));
         })),
     }
@@ -125,7 +155,7 @@ function dString(val) {
     obj.type = types.STRING;
     obj.stringVal = val;
     
-    obj.messages = {
+    obj.interface = {
 
     };
     return obj;
@@ -133,8 +163,8 @@ function dString(val) {
 
 function dConsoleObject() {
     let obj = dObject();
-    obj.messages = {
-        "say": dBlock(dPrimitive((ctx)=>{
+    obj.interface = {
+        "say": dInterface(dPrimitive((ctx)=>{
             var val = ctx.stack.pop();
             switch (val.type) {
                 case types.NUMBER:
@@ -157,9 +187,9 @@ function dBaseObject() {
     function colonObject() {
         let obj = dObject();
 
-        obj.onBody = dBlock(dPrimitive((ctx)=>{
+        obj.onBody = dInterface(dPrimitive((ctx)=>{
             let wordBlock = ctx.stack.pop();
-            let name = wordBlock.arrayVal.shift();
+            let name = wordBlock.blockContent.shift();
             let nameBlock = dBlock(name);
             ctx.stack.push(nameBlock);
             ctx.stack.push(wordBlock);
@@ -168,17 +198,17 @@ function dBaseObject() {
         return obj;
     }
     
-    obj.messages = {
-        ':': dBlock(dPrimitive((ctx)=>{
+    obj.interface = {
+        ':': dInterface(dPrimitive((ctx)=>{
             ctx.stack.push(colonObject());
         })),
         // TODO: Create setters based on name - IE ":name"
-        ';': dBlock(dPrimitive((ctx)=>{
+        ';': dInterface(dPrimitive((ctx)=>{
             const def = ctx.stack.pop(); // block 2
             const name = ctx.stack.pop(); // block 1
-            obj.messages[name.arrayVal[0].stringVal] = def;
+            obj.interface[name.blockContent[0].stringVal] = def;
         })),
-        'self': dBlock(dPrimitive((ctx => ctx.stack.push(obj))))
+        'self': dInterface(dPrimitive((ctx => ctx.stack.push(obj))))
     };
 
     return obj;
@@ -189,7 +219,7 @@ function dBase() {
     obj.type = types.OBJECT;
     
     // push strings or numbers on to the stack. . .
-    obj.doesNotUnderstand = dBlock(dPrimitive((ctx)=>{
+    obj.doesNotUnderstand = dInterface(dPrimitive((ctx)=>{
         var arg1 = ctx.stack.pop();
         if (arg1.type == types.MESSAGE) {
             if (isNumeric(arg1.stringVal)) {
@@ -204,33 +234,33 @@ function dBase() {
         }
     }));
 
-    obj.messages = {
-        "object": dBlock(dPrimitive((ctx)=>{
+    obj.interface = {
+        "object": dInterface(dPrimitive((ctx)=>{
             ctx.stack.push(dBaseObject());
         })),
-        "console": dBlock(dPrimitive((ctx)=> {
+        "console": dInterface(dPrimitive((ctx)=> {
             ctx.stack.push(dConsoleObject());
         })),
-        "drop": dBlock(dPrimitive((ctx)=> ctx.stack.pop())),
-        "dup": dBlock(dPrimitive((ctx)=>{
+        "drop": dInterface(dPrimitive((ctx)=> ctx.stack.pop())),
+        "dup": dInterface(dPrimitive((ctx)=>{
             const n = ctx.stack.pop();
             ctx.stack.push(n);
             ctx.stack.push(n);
         })),
-        "swap": dBlock(dPrimitive((ctx)=>{
+        "swap": dInterface(dPrimitive((ctx)=>{
             const valb = ctx.stack.pop();
             const vala = ctx.stack.pop();
             ctx.stack.push(valb);
             ctx.stack.push(vala);
         })),
-        "over": dBlock(dPrimitive((ctx)=>{
+        "over": dInterface(dPrimitive((ctx)=>{
             const n2 = ctx.stack.pop();
             const n1 = ctx.stack.pop();
             ctx.stack.push(n1);
             ctx.stack.push(n2);
             ctx.stack.push(n1);
         })),
-        "rot": dBlock(dPrimitive((ctx)=>{
+        "rot": dInterface(dPrimitive((ctx)=>{
             const n3 = ctx.stack.pop();
             const n2 = ctx.stack.pop();
             const n1 = ctx.stack.pop();
@@ -242,7 +272,12 @@ function dBase() {
     return obj;
 }
 
-function stringToMessage(str) {
+/** 
+ * Turns a string into a message. 
+ * This can be ran against any object but will usually be run against the base object.
+ * @param str {String} The string to be converted
+*/
+function stringToBlock(str) {
     let i = 0;
     var message = dBlock();
     var stack = [message];
@@ -276,29 +311,35 @@ function stringToMessage(str) {
         switch (word) {
             case "[": 
                 var innerMessage = dBlock();
-                stack[stack.length - 1].arrayVal.push(innerMessage);
+                stack[stack.length - 1].blockContent.push(innerMessage);
                 stack.push(innerMessage);
                 break;
             case "]":
                 stack.pop();
                 break;
             default:
-                stack[stack.length - 1].arrayVal.push(dMessage(word));
+                stack[stack.length - 1].blockContent.push(dMessage(word));
                 break;
         }
         word = getNextWord();
     }
+
     return message;
 }
 
-function run(script) {
+function dContext(scope, stack) {
     let ctx = {
-        stack: [], // object stack
-        scope: [dBase()],
+        stack: stack || [],
+        scope: scope || [ dBase() ],
         messageStack: [],
-        messageStackPosition: [],
+        messageStackPosition: []
     };
-    const message = stringToMessage(script);
+    return ctx;
+}
+
+function executeBlock(block, context) {
+    let ctx = context;
+    const message = block;
     function scopedMessage(message, scopePosition, scopePop) {
         return {
             scopePosition,
@@ -312,38 +353,52 @@ function run(script) {
         const scoped = ctx.messageStack[ctx.messageStack.length - 1];
         const block = scoped.message;
         const scope = scoped.scopePosition;
-        if (block.arrayVal.length == ctx.messageStackPosition[ctx.messageStackPosition.length - 1]) {
+        if (block.blockContent.length == ctx.messageStackPosition[ctx.messageStackPosition.length - 1]) {
             ctx.messageStack.pop();
             ctx.messageStackPosition.pop();
             if (scoped.scopePop) {
                 ctx.scope.pop();
             }
         } else {
-            const obj = block.arrayVal[ctx.messageStackPosition[ctx.messageStackPosition.length - 1]]
+            // obj could be another block, a primitive, or a message
+            const obj = block.blockContent[ctx.messageStackPosition[ctx.messageStackPosition.length - 1]];
+            
+            // increase the message position for the current stack by 1
             ctx.messageStackPosition[ctx.messageStackPosition.length - 1] = ctx.messageStackPosition[ctx.messageStackPosition.length - 1] + 1;
 
+            // we've encountered a block (potentially a block of messages and more blocks)
+            // that means we get the next object from the value stack and put it in scope
             if (obj.type === types.BLOCK) {
                 const nextObj = ctx.stack.pop();
+                // put object from the stack onto scope
                 ctx.scope.push(nextObj);
-                // magic!
+
+                // if nextObj has onBody then we put the stepped onto block on to the value stack 
                 if (nextObj.onBody !== null) {
+                    // instead of entering the obj for processing messages we process the onBody block for processing blocks
                     ctx.messageStack.push(scopedMessage(nextObj.onBody, ctx.scope.length - 1, true));
                     ctx.messageStackPosition.push(0);
                     ctx.stack.push(obj);
-                } else {
+                } 
+                // otherwise, we just enter a new scoped message (which is basically entering a block, hence putting on to the message stack and stack position)
+                else {
                     ctx.messageStack.push(scopedMessage(obj, ctx.scope.length - 1, true));
                     ctx.messageStackPosition.push(0);
                 }
             } 
-            else if (obj.type === types.PRIMITIVE) {
-                obj.primitive(ctx);
-            } else if (obj.type === types.MESSAGE) {
+            // perform primitive
+            else if (obj.type === types.PRIMITIVE) { obj.primitive(ctx); } 
+            // interpret message
+            else if (obj.type === types.MESSAGE) {
                 for (var i = scope; i >= 0; i--) {
-                    if (ctx.scope[i].messages.hasOwnProperty(obj.stringVal)) {
-                        ctx.messageStack.push(scopedMessage(ctx.scope[i].messages[obj.stringVal], i, false));
+                    // if the interface responds to the message's value (string val) then we enter 
+                    if (ctx.scope[i].interface.hasOwnProperty(obj.stringVal)) {
+                        ctx.messageStack.push(scopedMessage(ctx.scope[i].interface[obj.stringVal], i, false));
                         ctx.messageStackPosition.push(0);
                         break;
-                    } else if (ctx.scope[i].doesNotUnderstand !== null) {
+                    } 
+                    // The interface may be able to respond to messages it does not know
+                    else if (ctx.scope[i].doesNotUnderstand !== null) {
                         ctx.stack.push(obj);
                         ctx.messageStack.push(scopedMessage(ctx.scope[i].doesNotUnderstand, i, false));
                         ctx.messageStackPosition.push(0);
@@ -357,7 +412,7 @@ function run(script) {
     }
 }
 
-run(`
+var code = `
 object [
     : [ factorial dup 1 [ < ] [ 
         if [ dup [ 1- ] factorial [ * ] ]
@@ -365,4 +420,7 @@ object [
     5 factorial
 ]
 console [ say ]
-`);
+`;
+
+var block = stringToBlock(code);
+block.extern.run();
