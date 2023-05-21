@@ -194,7 +194,7 @@ function dProto() {
             // obj.interface[name.blockContent[0].stringVal] = def;
             // throw "error: unimplemented";
         })),
-        'self': dInterface(dPrimitive((ctx => ctx.stack.push(obj))))
+        'me': dInterface(dPrimitive((ctx => ctx.stack.push(obj))))
     };
 
     return obj;
