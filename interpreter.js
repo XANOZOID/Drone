@@ -188,11 +188,19 @@ function dProto() {
     obj.interface = {
         // TODO: Create setters based on name - IE ":name"
         ';': dInterface(dPrimitive((ctx)=>{
-            const def = ctx.stack.pop(); // block 2
+            const def = ctx.stack.pop();
             var name = def.blockContent.shift();
             obj.interface[name.stringVal] = def;
-            // obj.interface[name.blockContent[0].stringVal] = def;
-            // throw "error: unimplemented";
+            obj.interface[name.stringVal + ":"] = dInterface(dPrimitive((ctx)=>{
+                const val = ctx.stack.pop();
+                // wrap non-block types in a block
+                if (val.type !== types.BLOCK) {
+                    obj.interface[name.stringVal] = dInterface(val);
+                }
+                else {
+                    obj.interface[name.stringVal] = val;
+                }
+            }));
         })),
         'me': dInterface(dPrimitive((ctx => ctx.stack.push(obj))))
     };
@@ -468,7 +476,11 @@ proto [
     : [ factorial dup 1 [ < ] [ 
         if [ dup [ 1- ] factorial [ * ] ]
     ] ] ;
-    55 factorial
+    : [ three ] ;
+    3 three:
+    three console [ say ]
+    three factorial
+    "hello world!" three: console [ three say ]
     12 5 : [ @five @@twelve five twelve [ + ] ] [ run/current ]
 ]
 console [ say say ]
