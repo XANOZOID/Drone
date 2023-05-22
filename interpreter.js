@@ -341,8 +341,11 @@ function stringToBlock(str) {
         var word = "";
         var captured = false;
         while (i < str.length && !captured) {
+            // skip whitespace or add whitespace to a string
             if (str[i].trim() == '') {
                 if (word.startsWith(`"`)) word += str[i];
+                else if (word.startsWith(`![`)) word += str[i];
+                // if word isn't empty and we hit a whitespace then we captured a word
                 else if (word !== "") {
                     captured = true;
                 }
@@ -355,10 +358,21 @@ function stringToBlock(str) {
                     word += str[i];
                 }
             }
+            else if (str[i] == ']') {
+                if (word.startsWith('![')) {
+                    captured = true;
+                }
+                else {
+                    word += str[i];
+                }
+            }
             else if (str[i].trim() != '') {
                 word += str[i];
             }
             i ++;
+        }
+        if (word.startsWith("![")) {
+            return getNextWord();
         }
         return word;
     }
@@ -478,6 +492,12 @@ proto [
     ] ] ;
     : [ three ] ;
     3 three:
+    ![this is a comment :) ]
+    ![this is also a comment]
+    ![comment: hello]
+    ![
+        this is a long comment
+    ]
     three console [ say ]
     three factorial
     "hello world!" three: console [ three say ]
