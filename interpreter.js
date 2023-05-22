@@ -27,6 +27,7 @@ function dObject() {
         doesNotUnderstand: null, // is a message object
         interface: {}, // contains message blocks
         extern: null,
+        stopped: false, // whether a block has stopped execution or not
     };
     return native;
 }
@@ -65,6 +66,16 @@ function dBlock(val) {
         }
     }
 
+    function dControl() {
+        let ctrl = dObject();
+        ctrl.interface = {
+            "stop": dInterface(dPrimitive((ctx)=>{
+                obj.stopped = true;
+            }))
+        };
+        return ctrl;
+    }
+
     obj.interface = {
         "run": dInterface(dPrimitive((ctx)=> {
             var exCtx = executeBlock(obj, dContext());
@@ -72,7 +83,8 @@ function dBlock(val) {
         })),
         "run/current": dInterface(dPrimitive((ctx)=>{
             executeBlock(obj, dContext(ctx.scope, ctx.stack));
-        }))
+        })),
+        "control": dInterface(dControl()),
     };
 
     obj.extern = {
@@ -420,6 +432,7 @@ function dContext(scope, stack) {
 function executeBlock(block, context) {
     let ctx = context;
     const message = block;
+    message.stopped = false;
     function scopedMessage(message, scopePosition, scopePop) {
         return {
             scopePosition,
@@ -431,7 +444,7 @@ function executeBlock(block, context) {
     applyParams(ctx, message, "@@");
     ctx.messageStack.push(scopedMessage(message, 0, false));
     ctx.messageStackPosition.push(0);
-    while (ctx.messageStack.length > 0) {
+    while (ctx.messageStack.length > 0 && !message.stopped) {
         const scoped = ctx.messageStack[ctx.messageStack.length - 1];
         const block = scoped.message;
         const scope = scoped.scopePosition;
@@ -517,15 +530,16 @@ console [ say say ]
 const code2 = `
 : [ 5 [ + ] dup 10 [ = ] [ if [ drop exit ] ] "isn't 10: " console [ say say ] ] 
 proto [ 
-  dup [ control ] : [ exit @control control [ stop ] ] ;
-  ![ or written as
-    dup : [ exit @block block [ control [ stop ] ] ] ;
-  ]
-  dup 3 swap [ run/current ] ![ prints "isn't 10: 8"]
-  5 swap [ run/current ] ![ prints nothing cause 5 + 5 = 10 ]
+    dup [ control ] : [ exit @control control [ stop ] ] ;
+    ![ or written as
+        dup : [ exit @block block [ control [ stop ] ] ] ;
+    ]
+    dup 
+    3 swap [ run/current ] ![ prints "isn't 10: 8"]
+    5 swap [ run/current ] ![ prints nothing cause 5 + 5 = 10 ]
 ]
 `;
 
-var block = stringToBlock(code);
+var block = stringToBlock(code2);
 // console.log(block);
 block.extern.run();
