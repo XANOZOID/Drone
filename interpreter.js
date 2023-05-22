@@ -338,13 +338,15 @@ function stringToBlock(str) {
     var message = dBlock();
     var stack = [message];
     function getNextWord() {
-        var word = "";
-        var captured = false;
+        let word = ""; 
+        let captured = false;
+        let comment = false;
+        let closings = 0;
         while (i < str.length && !captured) {
             // skip whitespace or add whitespace to a string
             if (str[i].trim() == '') {
                 if (word.startsWith(`"`)) word += str[i];
-                else if (word.startsWith(`![`)) word += str[i];
+                else if (comment) word += str[i];
                 // if word isn't empty and we hit a whitespace then we captured a word
                 else if (word !== "") {
                     captured = true;
@@ -358,20 +360,28 @@ function stringToBlock(str) {
                     word += str[i];
                 }
             }
-            else if (str[i] == ']') {
-                if (word.startsWith('![')) {
+            else if (comment) {
+                if (str[i] == '[') {
+                    closings ++;
+                }
+                else if (str[i] == ']' && closings == 0) {
                     captured = true;
                 }
-                else {
-                    word += str[i];
+                else if (str[i] == ']') {
+                    closings --;
                 }
+                word += str[i];
+            }
+            else if (str[i]='[' && word[0] === '!') {
+                comment = true;
+                word += str[i];
             }
             else if (str[i].trim() != '') {
                 word += str[i];
             }
             i ++;
         }
-        if (word.startsWith("![")) {
+        if (comment) {
             return getNextWord();
         }
         return word;
@@ -489,16 +499,14 @@ var code = `
 proto [
     : [ factorial dup 1 [ < ] [ 
         if [ dup [ 1- ] factorial [ * ] ]
-    ] ] ;
-    : [ three ] ;
+    ] ] ;     : [ three ] ;
+    ![
     3 three:
     ![this is a comment :) ]
     ![this is also a comment]
     ![comment: hello]
-    ![
-        this is a long comment
-    ]
-    three console [ say ]
+    three console [ say ] ]
+    5 three:
     three factorial
     "hello world!" three: console [ three say ]
     12 5 : [ @five @@twelve five twelve [ + ] ] [ run/current ]
@@ -506,5 +514,18 @@ proto [
 console [ say say ]
 `;
 
+const code2 = `
+: [ 5 [ + ] dup 10 [ = ] [ if [ drop exit ] ] "isn't 10: " console [ say say ] ] 
+proto [ 
+  dup [ control ] : [ exit @control control [ stop ] ] ;
+  ![ or written as
+    dup : [ exit @block block [ control [ stop ] ] ] ;
+  ]
+  dup 3 swap [ run/current ] ![ prints "isn't 10: 8"]
+  5 swap [ run/current ] ![ prints nothing cause 5 + 5 = 10 ]
+]
+`;
+
 var block = stringToBlock(code);
+// console.log(block);
 block.extern.run();
