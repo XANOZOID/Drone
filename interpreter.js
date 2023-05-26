@@ -79,17 +79,17 @@ function dBlock(val) {
 
     obj.interface = {
         "run": dInterface(dPrimitive((ctx)=> {
-            var exCtx = executeBlock(obj, dContext());
+            var exCtx = executeBlock(obj, dContext(), true);
             ctx.stack = ctx.stack.concat(exCtx.stack);
         })),
         "run/current": dInterface(dPrimitive((ctx)=>{
-            executeBlock(obj, dContext(ctx.scope, ctx.stack));
+            executeBlock(obj, dContext(ctx.scope, ctx.stack, true));
         })),
         "control": dInterface(dControl()),
     };
 
     obj.extern = {
-        run: (stack) => { executeBlock(obj, dContext(null, stack || [] )); }
+        run: (stack) => { executeBlock(obj, dContext(null, stack || [] ), true); }
     };
 
     return obj;
@@ -430,11 +430,12 @@ function dContext(scope, stack) {
     return ctx;
 }
 
-function executeBlock(block, context) {
+function executeBlock(block, context, isParamaterized) {
     let ctx = context;
     const message = block;
     message.stopped = false;
-    function scopedMessage(message, scopePosition, scopePop) {
+    function scopedMessage(message, scopePosition, scopePop, isParamaterized = false) {
+        if (isParamaterized) applyParams(ctx, message, "@@");
         return {
             scopePosition,
             message, 
@@ -442,8 +443,7 @@ function executeBlock(block, context) {
         };
     }
     // Apply values for @@<identifier>
-    applyParams(ctx, message, "@@");
-    ctx.messageStack.push(scopedMessage(message, context.scope.length - 1, false));
+    ctx.messageStack.push(scopedMessage(message, context.scope.length - 1, false, isParamaterized));
     ctx.messageStackPosition.push(0);
     while (ctx.messageStack.length > 0 && !message.stopped) {
         const scoped = ctx.messageStack[ctx.messageStack.length - 1];
@@ -469,16 +469,16 @@ function executeBlock(block, context) {
                 // put object from the stack onto scope
                 ctx.scope.push(nextObj);
 
-                // if nextObj has onBody then we put the stepped onto block on to the value stack 
+                // (magic) if nextObj has onBody then we put the stepped onto block on to the value stack 
                 if (nextObj.onBody !== null) {
                     // instead of entering the obj for processing messages we process the onBody block for processing blocks
-                    ctx.messageStack.push(scopedMessage(nextObj.onBody, ctx.scope.length - 1, true));
+                    ctx.messageStack.push(scopedMessage(nextObj.onBody, ctx.scope.length - 1, true, true));
                     ctx.messageStackPosition.push(0);
                     ctx.stack.push(obj);
                 } 
                 // otherwise, we just enter a new scoped message (which is basically entering a block, hence putting on to the message stack and stack position)
                 else {
-                    ctx.messageStack.push(scopedMessage(obj, ctx.scope.length - 1, true));
+                    ctx.messageStack.push(scopedMessage(obj, ctx.scope.length - 1, true, false));
                     ctx.messageStackPosition.push(0);
                 }
             } 
@@ -490,23 +490,15 @@ function executeBlock(block, context) {
                     for (var i = scope; i >= 0; i--) {
                         // if the interface responds to the message's value (string val) then we enter 
                         if (ctx.scope[i].interface.hasOwnProperty(obj.stringVal)) {
-                            // ctx.messageStack.push(scopedMessage(ctx.scope[i].interface[obj.stringVal], i, false));
-                            // ctx.messageStackPosition.push(0);
-                            executeBlock(
-                                ctx.scope[i].interface[obj.stringVal],
-                                ctx
-                            );
+                            ctx.messageStack.push(scopedMessage(ctx.scope[i].interface[obj.stringVal], i, false, true));
+                            ctx.messageStackPosition.push(0);
                             break;
                         } 
                         // The interface may be able to respond to messages it does not know
                         else if (ctx.scope[i].doesNotUnderstand !== null) {
                             ctx.stack.push(obj);
-                            // ctx.messageStack.push(scopedMessage(ctx.scope[i].doesNotUnderstand, i, false));
-                            // ctx.messageStackPosition.push(0);
-                            executeBlock(
-                                ctx.scope[i].doesNotUnderstand,
-                                ctx
-                            );
+                            ctx.messageStack.push(scopedMessage(ctx.scope[i].doesNotUnderstand, i, false, true));
+                            ctx.messageStackPosition.push(0);
                         }
                     }
                 }
