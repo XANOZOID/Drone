@@ -12,6 +12,7 @@
 - block controls
 
 # Bugs
-- params delete instead of nullify (messages should be nullable)
+- Execution scope does not properly get carried between block executions
 
 # Fixed
+- params delete instead of nullify (messages should be nullable)

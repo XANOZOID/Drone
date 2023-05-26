@@ -21,6 +21,7 @@ function dObject() {
         type: types.OBJECT,
         stringVal: "",
         numberVal: 0,
+        nullMessage: false,
         blockContent: [],
         primitive: (ctx)=>{}, // function that operates on context
         onBody: null, // is a message object . . . (acts like a interface)
@@ -114,7 +115,6 @@ function dMute() {
 
 function dBoolean(val) {
     let obj = dObject();
-    obj.type = types.OBJECT;
     
     if (val) {
         obj.interface["if"] = dInterface(dObject());
@@ -227,12 +227,13 @@ function applyParams(ctx, block, startsWith, startsWithNot = "") {
         var blockObj = block.blockContent[i];
         if (blockObj.type == types.MESSAGE) {
             var message = blockObj.stringVal;
+            // Check if it's a matched pattern (@ or @@)
             if (message.startsWith(startsWith) && (!message.startsWith(startsWithNot) || startsWithNot == "" )) {
                 if (!params.hasOwnProperty(message)) {
                     params[message] = ctx.stack.pop();
                 }
-                // remove the meta field from the block
-                block.blockContent.splice(i, 1);
+                // set the meta field to be a null message
+                blockObj.nullMessage = true;
             }
         }
     }
@@ -252,7 +253,7 @@ function applyParams(ctx, block, startsWith, startsWithNot = "") {
             if (paramObj.type == types.MESSAGE) {
                 var paramName = paramObj.stringVal;
                 if (paramList.indexOf(paramName) != -1) {
-                    paramObj.blockContent.push(params[startsWith+paramName])
+                    paramObj.blockContent[0] = params[startsWith+paramName];
                 }
             }
             else if (paramObj.type == types.BLOCK) {
@@ -442,7 +443,7 @@ function executeBlock(block, context) {
     }
     // Apply values for @@<identifier>
     applyParams(ctx, message, "@@");
-    ctx.messageStack.push(scopedMessage(message, 0, false));
+    ctx.messageStack.push(scopedMessage(message, context.scope.length - 1, false));
     ctx.messageStackPosition.push(0);
     while (ctx.messageStack.length > 0 && !message.stopped) {
         const scoped = ctx.messageStack[ctx.messageStack.length - 1];
@@ -483,20 +484,30 @@ function executeBlock(block, context) {
             } 
             // perform primitive
             else if (obj.type === types.PRIMITIVE) { obj.primitive(ctx); } 
-            // interpret message
+            // interpret message (if not null)
             else if (obj.type === types.MESSAGE) {
-                for (var i = scope; i >= 0; i--) {
-                    // if the interface responds to the message's value (string val) then we enter 
-                    if (ctx.scope[i].interface.hasOwnProperty(obj.stringVal)) {
-                        ctx.messageStack.push(scopedMessage(ctx.scope[i].interface[obj.stringVal], i, false));
-                        ctx.messageStackPosition.push(0);
-                        break;
-                    } 
-                    // The interface may be able to respond to messages it does not know
-                    else if (ctx.scope[i].doesNotUnderstand !== null) {
-                        ctx.stack.push(obj);
-                        ctx.messageStack.push(scopedMessage(ctx.scope[i].doesNotUnderstand, i, false));
-                        ctx.messageStackPosition.push(0);
+                if (!obj.nullMessage) {
+                    for (var i = scope; i >= 0; i--) {
+                        // if the interface responds to the message's value (string val) then we enter 
+                        if (ctx.scope[i].interface.hasOwnProperty(obj.stringVal)) {
+                            // ctx.messageStack.push(scopedMessage(ctx.scope[i].interface[obj.stringVal], i, false));
+                            // ctx.messageStackPosition.push(0);
+                            executeBlock(
+                                ctx.scope[i].interface[obj.stringVal],
+                                ctx
+                            );
+                            break;
+                        } 
+                        // The interface may be able to respond to messages it does not know
+                        else if (ctx.scope[i].doesNotUnderstand !== null) {
+                            ctx.stack.push(obj);
+                            // ctx.messageStack.push(scopedMessage(ctx.scope[i].doesNotUnderstand, i, false));
+                            // ctx.messageStackPosition.push(0);
+                            executeBlock(
+                                ctx.scope[i].doesNotUnderstand,
+                                ctx
+                            );
+                        }
                     }
                 }
             } else {
@@ -539,7 +550,18 @@ proto [
     5 swap [ run/current ] ![ prints nothing cause 5 + 5 = 10 ]
 ]
 `;
+const code3 = `
+proto [
+    12 : [ @twelve 
+        twelve console [ say ]
+        : [ do-it @@num num console [ say ] ] ;
+    ] [ run/current ]
 
-var block = stringToBlock(code2);
+    4 console [ say ]
+    5 do-it
+    6 do-it
+]
+`;
+var block = stringToBlock(code3);
 // console.log(block);
 block.extern.run();
