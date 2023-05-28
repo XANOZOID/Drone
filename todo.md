@@ -17,6 +17,8 @@
         - this also means being able to serialize the context and the objects which have primitives
         - Also it probably means closure based primitives need to be rethought? Probably
 
+- Readable Vs Runned blocks (blocks should have two sides, for reflective purposes)
+
 - reflection
 
 - connect to browser

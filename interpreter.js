@@ -324,12 +324,12 @@ function dStackNode(value, nodeBelow) {
     let obj = dObject();
 
     obj.interface = {
-        "value": value == null? dBlock() : dBlock(value),
-        "node-below": nodeBelow == null || nodeBelow == undefined? dBlock() : dBlock(nodeBelow),
-        "node-above": dBlock(),
+        "value": value == null? dInterface() : dInterface(value),
+        "node-below": nodeBelow == null || nodeBelow == undefined? dInterface() : dInterface(nodeBelow),
+        "node-above": dInterface(),
         "node-above:": dSetter(obj, "node-above"),
-        "below?": dBlock(value == null || value == undefined? dBoolean(false) : dBoolean(true)),
-        "above?": dBlock(dBoolean(false)),
+        "below?": dInterface(value == null || value == undefined? dBoolean(false) : dBoolean(true)),
+        "above?": dInterface(dBoolean(false)),
         "above?:": dSetter(obj, "above?"),
     };
 
@@ -355,7 +355,7 @@ function dStack(ctx) {
     }
     
     obj.interface = {
-        "pop": dBlock([
+        "pop": dInterface([
             dMessage("top"),
             dBlock([
                 dMessage("value"),
@@ -382,7 +382,7 @@ function dStack(ctx) {
             ]
         ];
         */
-        "shift": dBlock([
+        "shift": dInterface([
             dMessage("bottom"),
             dBlock([
                 dMessage("node-above"),
@@ -410,10 +410,10 @@ function dStack(ctx) {
                 ]),
             ])
         ]),
-        "bottom": dBlock(bottom), // basically a null value
-        "top": dBlock(top),
+        "bottom": dInterface(bottom), // basically a null value
+        "top": dInterface(top),
         "top:": dSetter(obj, "top"),
-        "empty?": dBlock([ dMessage("bottom"), dBlock([ dMessage("above?"), dBlock(dMessage("not")) ]) ])
+        "empty?": dInterface([ dMessage("bottom"), dBlock([ dMessage("above?"), dBlock(dMessage("not")) ]) ])
     };
 
     return obj;
@@ -749,6 +749,6 @@ console [
     say say say
 ]
 `;
-var block = stringToBlock(code4);
+var block = stringToBlock(code2);
 // console.log(block);
 block.extern.run();
