@@ -113,18 +113,49 @@ function dMute() {
     return obj;
 }
 
-function dBoolean(val) {
+function dFalse() {
     let obj = dObject();
+
+    var base = dBase();
+
+    obj.interface = {
+        "as-bool": dInterface([ base, dBlock(dMessage("false")) ]),
+        "not": dInterface([base, dBlock(dMessage("true"))]),
+        "or": dInterface([ dBlock(dMessage("as-bool")) ]),
+        "and": dInterface([
+            dMessage("drop"),
+            dMessage("as-bool")
+        ]),
+        "else": dInterface(dObject()),
+        "if": dInterface(dMute()),
+    };
     
-    if (val) {
-        obj.interface["if"] = dInterface(dObject());
-        obj.interface["else"] = dInterface(dMute());
-    } else {
-        obj.interface["if"] = dInterface(dMute());
-        obj.interface["else"] = dInterface(dObject());
-    }
-    // TODO: add boolean logic interface
     return obj;
+}
+
+function dTrue() {
+    let obj = dObject();
+
+    var base = dBase();
+
+    obj.interface = {
+        "as-bool": dInterface([ base, dBlock(dMessage("true")) ]),
+        "not": dInterface([base, dBlock(dMessage("false"))]),
+        "and": dInterface([ dBlock(dMessage("as-bool")) ]),
+        "or": dInterface([
+            dMessage("drop"),
+            dMessage("as-bool")
+        ]),
+        "if": dInterface(dObject()),
+        "else": dInterface(dMute()),
+    };
+
+    return obj;
+}
+
+function dBoolean(val) {
+    if (val) return dTrue();
+    return dFalse();
 }
 
 function dNumber(val) {
@@ -159,6 +190,7 @@ function dNumber(val) {
             ctx.stack.push(dBoolean(val === (ctx.stack.pop()).numberVal));
         })),
     }
+    
     return obj;
 }
 
@@ -186,12 +218,28 @@ function dConsoleObject() {
                 case types.STRING:
                     console.log(val.stringVal);
                     break;
+                case types.OBJECT:
+                    console.log(val);
+                    break;
             }
         }))
     };
     return obj;
 }
 
+
+function dSetter(obj, name) {
+    return dInterface(dPrimitive((ctx)=>{
+        const val = ctx.stack.pop();
+        // wrap non-block types in a block
+        if (val.type !== types.BLOCK) {
+            obj.interface[name] = dInterface(val);
+        }
+        else {
+            obj.interface[name] = val;
+        }
+    }))
+}
 
 // TODO: Support prototypal inheritance
 function dProto() {
@@ -203,16 +251,7 @@ function dProto() {
             const def = ctx.stack.pop();
             var name = def.blockContent.shift();
             obj.interface[name.stringVal] = def;
-            obj.interface[name.stringVal + ":"] = dInterface(dPrimitive((ctx)=>{
-                const val = ctx.stack.pop();
-                // wrap non-block types in a block
-                if (val.type !== types.BLOCK) {
-                    obj.interface[name.stringVal] = dInterface(val);
-                }
-                else {
-                    obj.interface[name.stringVal] = val;
-                }
-            }));
+            obj.interface[name.stringVal + ":"] = dSetter(obj, name.stringVal);
         })),
         'me': dInterface(dPrimitive((ctx => ctx.stack.push(obj))))
     };
@@ -277,6 +316,107 @@ function colonObject() {
     return obj;
 }
 
+
+// Represents a node in the stack
+function dStackNode(value, nodeBelow) {
+    let obj = dObject();
+
+    obj.interface = {
+        "value": value == null? dBlock() : dBlock(value),
+        "node-below": nodeBelow == null || nodeBelow == undefined? dBlock() : dBlock(nodeBelow),
+        "node-above": dBlock(),
+        "node-above:": dSetter(obj, "node-above"),
+        "below?": dBlock(value == null || value == undefined? dBoolean(false) : dBoolean(true)),
+        "above?": dBlock(dBoolean(false)),
+        "above?:": dSetter(obj, "above?"),
+    };
+
+    return obj;
+}
+
+/**
+ * Represents a stack object that converts the interpreter's stack to a protozoid operable stack
+ * @param {dContext} ctx The interpreter's context
+ * @returns protozoid usable stack which is a copy of the current stack
+ */
+function dStack(ctx) {
+    let obj = dObject();
+
+    var bottom = dStackNode();
+    var top = bottom;
+    for (var i = 0; i < ctx.stack.length; i ++) {
+        var node = dStackNode(ctx.stack[i], top);
+        // set above properties for node below
+        top.interface["node-above"] = dBlock(node);
+        top.interface["above?"] = dBlock(dBoolean(true));
+        top = node;
+    }
+    
+    obj.interface = {
+        "pop": dBlock([
+            dMessage("top"),
+            dBlock([
+                dMessage("value"),
+                dMessage("node-below")
+            ]),
+            dMessage("top:"),
+            dMessage("top"),
+            dBlock([
+                dMessage(":"), dBlock(),
+                dMessage("node-above:"),
+                dBoolean(false),
+                dMessage("above?:")
+            ])
+        ]),
+        /*
+        :[ shift 
+            bottom [
+                node-above [ value above? ]
+                [ 
+                    if [ node-above [ node-above ] above: ]
+                    else [ false above?: ]
+                ]
+                node-above [ value ]
+            ]
+        ];
+        */
+        "shift": dBlock([
+            dMessage("bottom"),
+            dBlock([
+                dMessage("node-above"),
+                dBlock([
+                    dMessage("value"),
+                    dMessage("above?")
+                ]),
+                dBlock([
+                    dMessage("if"),
+                    dBlock([
+                        dMessage("node-above"),
+                        dBlock(dMessage("node-above")),
+                        dMessage("node-above:")
+                    ]),
+                    dMessage("else"),
+                    dBlock([
+                        dMessage("false"),
+                        dMessage("above?:"),
+                        obj, 
+                        dBlock([
+                            bottom,
+                            dMessage("top:")
+                        ])
+                    ])
+                ]),
+            ])
+        ]),
+        "bottom": dBlock(bottom), // basically a null value
+        "top": dBlock(top),
+        "top:": dSetter(obj, "top"),
+        "empty?": dBlock([ dMessage("bottom"), dBlock([ dMessage("above?"), dBlock(dMessage("not")) ]) ])
+    };
+
+    return obj;
+}
+
 function dBase() {
     let obj = dObject();
     obj.type = types.OBJECT;
@@ -294,15 +434,25 @@ function dBase() {
             }
             else {
                 console.error("cannot respond to:", arg1);
+                throw `can not respond to ${arg1}`;
             }
         } else {
-            console.error("can not interpret", arg1);
+            throw `can not interpret ${arg1}`
         }
     }));
 
     obj.interface = {
+        'stack': dInterface(dPrimitive((ctx)=>{
+            ctx.stack.push(dStack(ctx));
+        })),
         ':': dInterface(dPrimitive((ctx)=>{
             ctx.stack.push(colonObject());
+        })),
+        "true": dInterface(dPrimitive((ctx)=>{
+            ctx.stack.push(dBoolean(true));
+        })),
+        "false": dInterface(dPrimitive((ctx)=>{
+            ctx.stack.push(dBoolean(false));
         })),
         "proto": dInterface(dPrimitive((ctx)=>{
             ctx.stack.push(dProto());
@@ -449,6 +599,7 @@ function executeBlock(block, context, isParamaterized) {
         const scoped = ctx.messageStack[ctx.messageStack.length - 1];
         const block = scoped.message;
         const scope = scoped.scopePosition;
+
         if (block.blockContent.length == ctx.messageStackPosition[ctx.messageStackPosition.length - 1]) {
             ctx.messageStack.pop();
             ctx.messageStackPosition.pop();
@@ -456,8 +607,11 @@ function executeBlock(block, context, isParamaterized) {
                 ctx.scope.pop();
             }
         } else {
+
             // obj could be another block, a primitive, or a message
             const obj = block.blockContent[ctx.messageStackPosition[ctx.messageStackPosition.length - 1]];
+            // console.log(obj); // Prints out the messages
+            // console.log("stack is:", [].concat(ctx.stack));
             
             // increase the message position for the current stack by 1
             ctx.messageStackPosition[ctx.messageStackPosition.length - 1] = ctx.messageStackPosition[ctx.messageStackPosition.length - 1] + 1;
@@ -554,6 +708,45 @@ proto [
     6 do-it
 ]
 `;
-var block = stringToBlock(code3);
+const code4 = `
+console [
+    
+    1 2 3
+    stack [
+        proto [
+            : [ print-empty 
+                empty? [
+                    if [ "is empty!!!!!!" say ]
+                    else [ "is not empty!" say ]
+                ]
+            ] ;
+            print-empty 
+            pop say
+            print-empty
+            pop say
+            print-empty
+            pop say
+            print-empty
+        ]
+    ]
+    say say say
+    1 2 3
+    stack [
+        proto [
+            : [ print-empty 
+                empty? [
+                    if [ "is empty!!!!!!" say ]
+                    else [ "is not empty!" say ]
+                ]
+            ] ;
+            shift say
+            shift say
+            shift say
+        ]
+    ]
+    say say say
+]
+`;
+var block = stringToBlock(code4);
 // console.log(block);
 block.extern.run();

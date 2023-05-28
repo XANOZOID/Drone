@@ -1,14 +1,31 @@
 
 # TODO
-- Stack and scope objects and interface
-    - ability to shift and pop from the scope object
+- [x] Steal the value stack from context
+    - also operations:
+        - open the current stack on top of the current stack
+        - replace context stack with stack on stack 
+- Scope:
+    - steal the scope from context
+    - ability (operations) to shift and pop from the stolen scope object
+    - ability (operation) to stack scopes
+
 - loops
 - asynchronous callbacks
 - exceptions / exception handling
+
+- update setters to be an interpretable object instead of a primitive closure
+    - On a side note: Attempt to everything serializable by nearly almost dumping the objects to something like "json" (since that's what they currently are represented with)
+        - this also means being able to serialize the context and the objects which have primitives
+        - Also it probably means closure based primitives need to be rethought? Probably?
+
+- Create a repl
+- Create and load images
+
 - module system
 - javascript FFI
 
 # Done
+- Stack object for the base lang
 - block controls
 
 # Bugs
