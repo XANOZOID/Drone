@@ -8,19 +8,25 @@
     - steal the scope from context
     - ability (operations) to shift and pop from the stolen scope object
     - ability (operation) to stack scopes
-
 - loops
-- asynchronous callbacks
-- exceptions / exception handling
+- prototypes for protos
+- onBody should really just be an interface message
 
 - update setters to be an interpretable object instead of a primitive closure
     - On a side note: Attempt to everything serializable by nearly almost dumping the objects to something like "json" (since that's what they currently are represented with)
         - this also means being able to serialize the context and the objects which have primitives
-        - Also it probably means closure based primitives need to be rethought? Probably?
+        - Also it probably means closure based primitives need to be rethought? Probably
 
+- reflection
+
+- connect to browser
+- introduce main loop
 - Create a repl
 - Create and load images
+- exceptions / exception handling
 
+
+- asynchronous callbacks
 - module system
 - javascript FFI
 

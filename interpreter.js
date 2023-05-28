@@ -16,8 +16,10 @@ const types = {
 };
 
 // messages are objects which hold objects . . . so they hold themselves
+let objectID = 0;
 function dObject() {
     let native = {
+        objID: objectID++,
         type: types.OBJECT,
         stringVal: "",
         numberVal: 0,
@@ -79,17 +81,17 @@ function dBlock(val) {
 
     obj.interface = {
         "run": dInterface(dPrimitive((ctx)=> {
-            var exCtx = executeBlock(obj, dContext(), true);
+            var exCtx = executeBlock(obj, dJSContext(), true);
             ctx.stack = ctx.stack.concat(exCtx.stack);
         })),
         "run/current": dInterface(dPrimitive((ctx)=>{
-            executeBlock(obj, dContext(ctx.scope, ctx.stack, true));
+            executeBlock(obj, dJSContext(ctx.scope, ctx.stack, true));
         })),
         "control": dInterface(dControl()),
     };
 
     obj.extern = {
-        run: (stack) => { executeBlock(obj, dContext(null, stack || [] ), true); }
+        run: (stack) => { executeBlock(obj, dJSContext(null, stack || [] ), true); }
     };
 
     return obj;
@@ -253,7 +255,7 @@ function dProto() {
             obj.interface[name.stringVal] = def;
             obj.interface[name.stringVal + ":"] = dSetter(obj, name.stringVal);
         })),
-        'me': dInterface(dPrimitive((ctx => ctx.stack.push(obj))))
+        'me': dInterface(obj)
     };
 
     return obj;
@@ -336,7 +338,7 @@ function dStackNode(value, nodeBelow) {
 
 /**
  * Represents a stack object that converts the interpreter's stack to a protozoid operable stack
- * @param {dContext} ctx The interpreter's context
+ * @param {dJSContext} ctx The interpreter's context
  * @returns protozoid usable stack which is a copy of the current stack
  */
 function dStack(ctx) {
@@ -570,7 +572,7 @@ function stringToBlock(str) {
     return message;
 }
 
-function dContext(scope, stack) {
+function dJSContext(scope, stack) {
     let ctx = {
         stack: stack || [],
         scope: scope || [ dBase() ],
