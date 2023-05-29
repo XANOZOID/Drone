@@ -1,6 +1,5 @@
 
 # TODO
-- [x] Option&Flag to merge the value stack from top frame to bottom frame after completed execution
 - [x] Steal the value stack from context
     - also operations:
         - open the current stack on top of the current stack
@@ -39,6 +38,7 @@
 - javascript FFI
 
 # Done
+- [x] Option&Flag to merge the value stack from top frame to bottom frame after completed execution
 - Stack object for the base lang
 - block controls
 

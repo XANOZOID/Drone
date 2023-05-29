@@ -87,15 +87,19 @@ function executePrimitive(ctx, primObj) {
         case prim.BASE_STACK: ctx.stack.push(dStack(ctx)); break;
         case prim.BASE_COLON: ctx.stack.push(dColonObject()); break;
         case prim.BASE_TRUE: ctx.stack.push(dBoolean(true)); break;
-        case prim.BASE_FALSE: ctx.stack.push(dBoolean(false));
+        case prim.BASE_FALSE: ctx.stack.push(dBoolean(false)); break;
         case prim.BASE_PROTO: ctx.stack.push(dProto()); break;
 
         case prim.PROTO_BLOCK_SET: dProto.semicolon(ctx); break;
 
         /** Useful for muting objects */
         case prim.GENERAL_POP: ctx.stack.pop(); break;
+        case prim.GENERAL_SET: dSetter.primitive(ctx); break;
 
         case prim.OTHER_CONSOLE_SAY: dConsoleObject.say(ctx); break;
+
+        default:
+            throw "Unsupported primitive";
     }
 }
 
@@ -204,6 +208,7 @@ function dFalse() {
 
     obj.interface = {
         "as-bool": dInterface([ base, dBlock(dMessage("false")) ]),
+        "as-string": dInterface(dString("false")),
         "not": dInterface([base, dBlock(dMessage("true"))]),
         "or": dInterface([ dBlock(dMessage("as-bool")) ]),
         "and": dInterface([
@@ -224,6 +229,7 @@ function dTrue() {
 
     obj.interface = {
         "as-bool": dInterface([ base, dBlock(dMessage("true")) ]),
+        "as-string": dInterface(dString("true")),
         "not": dInterface([base, dBlock(dMessage("false"))]),
         "and": dInterface([ dBlock(dMessage("as-bool")) ]),
         "or": dInterface([
@@ -485,6 +491,16 @@ function dStack(ctx) {
                 dMessage("node-above:"),
                 dBoolean(false),
                 dMessage("above?:")
+            ])
+        ]),
+        "pop-all": dInterface([
+            dMessage("empty?"),
+            dBlock([
+                dMessage("else"),
+                dBlock([
+                    dMessage("pop"),
+                    dMessage("pop-all")
+                ])
             ])
         ]),
         /*
@@ -778,6 +794,7 @@ function execute(contextContainer, runFrames = false) {
             const obj = block.blockContent[messagePosition];
             // console.log(obj); // Prints out the messages
             // console.log("stack is:", [].concat(ctx.stack));
+            // console.log("scope is:", [].concat(ctx.scope));
             
             // increase the message position for the current stack by 1
             scoped.messagePosition ++;
@@ -943,9 +960,20 @@ console [
     say say say
 ]
 `;
+// Test pop all
+const codePopAll = `
+console [
+    1 2 3
+    stack [
+        say say say
+        pop-all
+    ]
+    say say say
+]
+`;
 
 (()=>{
-    var block = stringToBlock(code2);
+    var block = stringToBlock(codePopAll);
     // console.log(block);
     block.extern.run();
 })();
