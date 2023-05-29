@@ -8,12 +8,96 @@ function isNumeric(str) {
 const types = {
     STRING: "string",
     NUMBER: "number",
-    ARRAY: "array",
     PRIMITIVE: "primitive",
     OBJECT: "object",
     MESSAGE: "message",
     BLOCK: "block"
 };
+
+/**
+ * NOTE: Primitives must not evaluate code.
+ */
+const prim = {
+    NULL: 0,
+    
+    NUMBERS_ADD: 1,
+    NUMBERS_SUBTRACT: 2,
+    NUMBERS_DIVIDE: 3,
+    NUMBERS_MULTIPLY: 4,
+    NUMBERS_MOD: 5,
+    NUMBERS_MINUS1: 6,
+    NUMBERS_GREATER_THAN: 7,
+    NUMBERS_LESSER_THAN: 8,
+    NUMBERS_EQ: 9,
+
+    BLOCK_CONTROL_STOP: 100,
+    BLOCK_RUN: 101,
+    BLOCK_RUN_CURRENT: 102,
+
+    PROTO_BLOCK_SET: 200,
+
+    BASE_COLON_PROCESS_BLOCK: 300,
+    BASE_DOES_NOT_UNDERSTAND: 301,
+    BASE_DUP: 302,
+    BASE_SWAP: 303,
+    BASE_OVER: 304,
+    BASE_ROT: 305,
+    BASE_STACK: 306,
+    BASE_COLON: 307,
+    BASE_TRUE: 308,
+    BASE_FALSE: 309,
+    BASE_PROTO: 310,
+
+    GENERAL_POP: 500,
+    GENERAL_SET: 501,
+    
+
+    OTHER_CONSOLE_SAY: 700,
+};
+
+/**
+ * Primitives must not evaluate/execute blocks of code.
+ * @param {dJSContextFrame} ctx Current execution context
+ * @param {dPrimitive} primObj current primitive
+ */
+function executePrimitive(ctx, primObj) {
+    let numVal;
+
+    switch (primObj.numberVal) {
+        case prim.NULL: break;
+
+        case prim.NUMBERS_ADD: dNumber.primitives.add(ctx); break;
+        case prim.NUMBERS_SUBTRACT: dNumber.primitives.subtract(ctx); break;
+        case prim.NUMBERS_MULTIPLY: dNumber.primitives.multiply(ctx); break;
+        case prim.NUMBERS_DIVIDE: dNumber.primitives.divide(ctx); break;
+        case prim.NUMBERS_MOD: dNumber.primitives.mod(ctx); break;
+        case prim.NUMBERS_MINUS1: dNumber.primitives.minus1(ctx); break;
+        case prim.NUMBERS_LESSER_THAN: dNumber.primitives.lesser_than(ctx); break;
+        case prim.NUMBERS_GREATER_THAN: dNumber.primitives.greater_than(ctx); break;
+        case prim.NUMBERS_EQ: dNumber.primitives.eq(ctx); break;
+
+        case prim.BLOCK_CONTROL_STOP: dBlock.primitives.controlStop(ctx); break; 
+
+        case prim.BASE_COLON_PROCESS_BLOCK: dColonObject.processBlock(ctx); break;
+        case prim.BASE_DOES_NOT_UNDERSTAND: dBase.primitives.doesNotUnderstand(ctx); break;
+        case prim.BASE_DUP: dBase.primitives.dup(ctx); break;
+        case prim.BASE_SWAP: dBase.primitives.swap(ctx); break;
+        case prim.BASE_OVER: dBase.primitives.over(ctx); break;
+        case prim.BASE_ROT: dBase.primitives.rot(ctx); break;
+        case prim.BASE_STACK: ctx.stack.push(dStack(ctx)); break;
+        case prim.BASE_COLON: ctx.stack.push(dColonObject()); break;
+        case prim.BASE_TRUE: ctx.stack.push(dBoolean(true)); break;
+        case prim.BASE_FALSE: ctx.stack.push(dBoolean(false));
+        case prim.BASE_PROTO: ctx.stack.push(dProto()); break;
+
+        case prim.PROTO_BLOCK_SET: dProto.semicolon(ctx); break;
+
+        /** Useful for muting objects */
+        case prim.GENERAL_POP: ctx.stack.pop(); break;
+
+        case prim.OTHER_CONSOLE_SAY: dConsoleObject.say(ctx); break;
+    }
+}
 
 // messages are objects which hold objects . . . so they hold themselves
 let objectID = 0;
@@ -25,7 +109,6 @@ function dObject() {
         numberVal: 0,
         nullMessage: false,
         blockContent: [],
-        primitive: (ctx)=>{}, // function that operates on context
         onBody: null, // is a message object . . . (acts like a interface)
         doesNotUnderstand: null, // is a message object
         interface: {}, // contains message blocks
@@ -35,10 +118,10 @@ function dObject() {
     return native;
 }
 
-function dPrimitive(fn) {
+function dPrimitive(id) {
     let obj = dObject();
     obj.type = types.PRIMITIVE;
-    obj.primitive = fn;
+    obj.numberVal = id;
     return obj;
 }
 
@@ -72,29 +155,31 @@ function dBlock(val) {
     function dControl() {
         let ctrl = dObject();
         ctrl.interface = {
-            "stop": dInterface(dPrimitive((ctx)=>{
-                obj.stopped = true;
-            }))
+            "stop": dInterface([obj, dPrimitive(prim.BLOCK_CONTROL_STOP)])
         };
         return ctrl;
     }
 
     obj.interface = {
-        "run": dInterface(dPrimitive((ctx)=> {
-            var exCtx = executeBlock(obj, dJSContext(), true);
-            ctx.stack = ctx.stack.concat(exCtx.stack);
-        })),
-        "run/current": dInterface(dPrimitive((ctx)=>{
-            executeBlock(obj, dJSContext(ctx.scope, ctx.stack, true));
-        })),
+        "run": dInterface([dSingleQuoteObject(), obj, dPrimitive(prim.BLOCK_RUN)]),
+        "run/current": dInterface([dSingleQuoteObject(), obj, dPrimitive(prim.BLOCK_RUN_CURRENT)]),
         "control": dInterface(dControl()),
     };
 
     obj.extern = {
-        run: (stack) => { executeBlock(obj, dJSContext(null, stack || [] ), true); }
+        run: (stack) => { 
+            const container = dJSContextContainer(dJSContextFrame(obj, null, stack || [] ));
+            executeStart(container, true); 
+        }
     };
 
     return obj;
+}
+dBlock.primitives = {
+    controlStop(ctx) {
+        const block = ctx.stack.pop();
+        block.stopped = true;
+    }
 }
 
 function dMessage(key) {
@@ -107,10 +192,7 @@ function dMessage(key) {
 function dMute() {
     let obj = dObject();
     obj.type = types.OBJECT;
-    obj.onBody = dInterface(dPrimitive((ctx)=> {
-        // same as "ignore this entire message-block"
-        ctx.stack.pop();
-    }));
+    obj.onBody = dInterface(dPrimitive(prim.GENERAL_POP));
     obj.interface = {};
     return obj;
 }
@@ -167,34 +249,57 @@ function dNumber(val) {
 
     // TODO: complete the operations
     obj.interface = {
-        "+": dInterface(dPrimitive((ctx) => {
-            ctx.stack.push(dNumber(val + (ctx.stack.pop()).numberVal));
-        })),
-        "-": dInterface(dPrimitive((ctx) => {
-            ctx.stack.push(dNumber(val - (ctx.stack.pop()).numberVal));
-        })),
-        "*": dInterface(dPrimitive((ctx) => {
-            ctx.stack.push(dNumber(val * (ctx.stack.pop()).numberVal));
-        })),
-        "/": dInterface(dPrimitive((ctx) => {
-            ctx.stack.push(dNumber(val / (ctx.stack.pop()).numberVal));
-        })),
-        
-        "1-": dInterface(dPrimitive((ctx) => ctx.stack.push(dNumber(val - 1)) )),
-
-        "<": dInterface(dPrimitive((ctx) => {
-            ctx.stack.push(dBoolean(val < (ctx.stack.pop()).numberVal));
-        })),
-        ">": dInterface(dPrimitive((ctx) => {
-            ctx.stack.push(dBoolean(val > (ctx.stack.pop()).numberVal));
-        })),
-        "=": dInterface(dPrimitive((ctx) => {
-            ctx.stack.push(dBoolean(val === (ctx.stack.pop()).numberVal));
-        })),
+        "+": dInterface([obj, dPrimitive(prim.NUMBERS_ADD)]),
+        "-": dInterface([obj, dPrimitive(prim.NUMBERS_SUBTRACT)]),
+        "*": dInterface([obj, dPrimitive(prim.NUMBERS_MULTIPLY)]),
+        "/": dInterface([obj, dPrimitive(prim.NUMBERS_DIVIDE)]),
+        "1-": dInterface([obj, dPrimitive(prim.NUMBERS_MINUS1)]),
+        "<": dInterface([obj, dPrimitive(prim.NUMBERS_LESSER_THAN)]),
+        ">": dInterface([obj, dPrimitive(prim.NUMBERS_GREATER_THAN)]),
+        "=": dInterface([obj, dPrimitive(prim.NUMBERS_EQ)]),
+        "%": dInterface([obj, dPrimitive(prim.NUMBERS_MOD)]),
     }
     
     return obj;
 }
+dNumber.primitives = {
+    add: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dNumber(numVal + (ctx.stack.pop()).numberVal));
+    },
+    subtract: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dNumber(numVal - (ctx.stack.pop()).numberVal));
+    },
+    multiply: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dNumber(numVal * (ctx.stack.pop()).numberVal));
+    },
+    divide: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dNumber(numVal / (ctx.stack.pop()).numberVal));
+    },
+    mod: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dNumber(numVal % (ctx.stack.pop()).numberVal));
+    },
+    minus1: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dBoolean(numVal < (ctx.stack.pop()).numberVal));
+    },
+    lesser_than: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dBoolean(numVal < (ctx.stack.pop()).numberVal));
+    },
+    greater_than: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dBoolean(numVal > (ctx.stack.pop()).numberVal));
+    },
+    eq: (ctx) => {
+        const numVal = ctx.stack.pop().numberVal;
+        ctx.stack.push(dBoolean(numVal === (ctx.stack.pop()).numberVal));
+    },
+};
 
 // TODO: flesh out string object
 function dString(val) {
@@ -208,58 +313,66 @@ function dString(val) {
     return obj;
 }
 
+
 function dConsoleObject() {
     let obj = dObject();
     obj.interface = {
-        "say": dInterface(dPrimitive((ctx)=>{
-            var val = ctx.stack.pop();
-            switch (val.type) {
-                case types.NUMBER:
-                    console.log(val.numberVal);
-                    break;
-                case types.STRING:
-                    console.log(val.stringVal);
-                    break;
-                case types.OBJECT:
-                    console.log(val);
-                    break;
-            }
-        }))
+        "say": dInterface(dPrimitive(prim.OTHER_CONSOLE_SAY))
     };
     return obj;
 }
-
+dConsoleObject.say = (ctx)=>{
+    var val = ctx.stack.pop();
+    switch (val.type) {
+        case types.NUMBER:
+            console.log(val.numberVal);
+            break;
+        case types.STRING:
+            console.log(val.stringVal);
+            break;
+        case types.OBJECT:
+            console.log(val);
+            break;
+    }
+};
 
 function dSetter(obj, name) {
-    return dInterface(dPrimitive((ctx)=>{
-        const val = ctx.stack.pop();
-        // wrap non-block types in a block
-        if (val.type !== types.BLOCK) {
-            obj.interface[name] = dInterface(val);
-        }
-        else {
-            obj.interface[name] = val;
-        }
-    }))
+    return dInterface([dString(name), obj, dPrimitive(prim.GENERAL_SET)]);
 }
+dSetter.primitive = (ctx)=>{
+    const obj = ctx.stack.pop();
+    const nameObj = ctx.stack.pop();
+    const val = ctx.stack.pop();
+    const name = nameObj.stringVal;
+    // wrap non-block types in a block
+    if (val.type !== types.BLOCK) {
+        obj.interface[name] = dInterface(val);
+    }
+    else {
+        obj.interface[name] = val;
+    }
+};
 
 // TODO: Support prototypal inheritance
 function dProto() {
     let obj = dObject();
 
     obj.interface = {
-        // TODO: Create setters based on name - IE ":name"
-        ';': dInterface(dPrimitive((ctx)=>{
-            const def = ctx.stack.pop();
-            var name = def.blockContent.shift();
-            obj.interface[name.stringVal] = def;
-            obj.interface[name.stringVal + ":"] = dSetter(obj, name.stringVal);
-        })),
+        ';': dInterface([obj, dPrimitive(prim.PROTO_BLOCK_SET)]),
         'me': dInterface(obj)
     };
 
     return obj;
 }
+
+dProto.semicolon = (ctx)=>{
+    const obj = ctx.stack.pop();
+    const def = ctx.stack.pop();
+    var name = def.blockContent.shift();
+    obj.interface[name.stringVal] = def;
+    obj.interface[name.stringVal + ":"] = dSetter(obj, name.stringVal);
+};
+
 
 function applyParams(ctx, block, startsWith, startsWithNot = "") {
     var params = {};
@@ -306,18 +419,22 @@ function applyParams(ctx, block, startsWith, startsWithNot = "") {
 }
 
 // TODO: Support enclosing stack objects with special syntax
-function colonObject() {
+function dColonObject() {
     let obj = dObject();
-
-    obj.onBody = dInterface(dPrimitive((ctx)=>{
-        let wordBlock = ctx.stack.pop();
-        applyParams(ctx, wordBlock, "@", "@@");
-        ctx.stack.push(wordBlock);
-    }));
-
+    obj.onBody = dInterface(dPrimitive(prim.BASE_COLON_PROCESS_BLOCK));
     return obj;
 }
+dColonObject.processBlock = (ctx)=>{
+    let wordBlock = ctx.stack.pop();
+    applyParams(ctx, wordBlock, "@", "@@");
+    ctx.stack.push(wordBlock);
+};
 
+function dSingleQuoteObject() {
+    let obj = dObject();
+    obj.onBody = dInterface(dPrimitive(prim.NULL));
+    return obj;
+};
 
 // Represents a node in the stack
 function dStackNode(value, nodeBelow) {
@@ -419,12 +536,33 @@ function dStack(ctx) {
     return obj;
 }
 
+let __base = null;
 function dBase() {
+    if (__base !== null) return __base;
     let obj = dObject();
-    obj.type = types.OBJECT;
+    __base = obj;
     
     // push strings or numbers on to the stack. . .
-    obj.doesNotUnderstand = dInterface(dPrimitive((ctx)=>{
+    obj.doesNotUnderstand = dInterface(dPrimitive(prim.BASE_DOES_NOT_UNDERSTAND));
+
+    obj.interface = {
+        'stack': dInterface(dPrimitive(prim.BASE_STACK)),
+        ':': dInterface(dPrimitive(prim.BASE_COLON)),
+        "'": dInterface(dSingleQuoteObject()),
+        "true": dInterface(dPrimitive(prim.BASE_TRUE)),
+        "false": dInterface(dPrimitive(prim.BASE_FALSE)),
+        "proto": dInterface(dPrimitive(prim.BASE_PROTO)),
+        "console": dInterface(dConsoleObject()),
+        "drop": dInterface(dPrimitive(prim.GENERAL_POP)),
+        "dup": dInterface(dPrimitive(prim.BASE_DUP)),
+        "swap": dInterface(dPrimitive(prim.BASE_SWAP)),
+        "over": dInterface(dPrimitive(prim.BASE_OVER)),
+        "rot": dInterface(dPrimitive(prim.BASE_ROT))
+    };
+    return obj;
+}
+dBase.primitives = {
+    doesNotUnderstand: (ctx) => {
         var arg1 = ctx.stack.pop();
         if (arg1.type == types.MESSAGE) {
             if (isNumeric(arg1.stringVal)) {
@@ -435,62 +573,38 @@ function dBase() {
                 ctx.stack.push(arg1.blockContent[0]);
             }
             else {
-                console.error("cannot respond to:", arg1);
                 throw `can not respond to ${arg1}`;
             }
         } else {
             throw `can not interpret ${arg1}`
         }
-    }));
-
-    obj.interface = {
-        'stack': dInterface(dPrimitive((ctx)=>{
-            ctx.stack.push(dStack(ctx));
-        })),
-        ':': dInterface(dPrimitive((ctx)=>{
-            ctx.stack.push(colonObject());
-        })),
-        "true": dInterface(dPrimitive((ctx)=>{
-            ctx.stack.push(dBoolean(true));
-        })),
-        "false": dInterface(dPrimitive((ctx)=>{
-            ctx.stack.push(dBoolean(false));
-        })),
-        "proto": dInterface(dPrimitive((ctx)=>{
-            ctx.stack.push(dProto());
-        })),
-        "console": dInterface(dPrimitive((ctx)=> {
-            ctx.stack.push(dConsoleObject());
-        })),
-        "drop": dInterface(dPrimitive((ctx)=> ctx.stack.pop())),
-        "dup": dInterface(dPrimitive((ctx)=>{
-            const n = ctx.stack.pop();
-            ctx.stack.push(n);
-            ctx.stack.push(n);
-        })),
-        "swap": dInterface(dPrimitive((ctx)=>{
-            const valb = ctx.stack.pop();
-            const vala = ctx.stack.pop();
-            ctx.stack.push(valb);
-            ctx.stack.push(vala);
-        })),
-        "over": dInterface(dPrimitive((ctx)=>{
-            const n2 = ctx.stack.pop();
-            const n1 = ctx.stack.pop();
-            ctx.stack.push(n1);
-            ctx.stack.push(n2);
-            ctx.stack.push(n1);
-        })),
-        "rot": dInterface(dPrimitive((ctx)=>{
-            const n3 = ctx.stack.pop();
-            const n2 = ctx.stack.pop();
-            const n1 = ctx.stack.pop();
-            ctx.stack.push(n2);
-            ctx.stack.push(n3);
-            ctx.stack.push(n1);
-        }))
-    };
-    return obj;
+    },
+    dup(ctx) {
+        const n = ctx.stack.pop();
+        ctx.stack.push(n);
+        ctx.stack.push(n);
+    },
+    swap(ctx) {
+        const valb = ctx.stack.pop();
+        const vala = ctx.stack.pop();
+        ctx.stack.push(valb);
+        ctx.stack.push(vala);
+    },
+    over(ctx) {
+        const n2 = ctx.stack.pop();
+        const n1 = ctx.stack.pop();
+        ctx.stack.push(n1);
+        ctx.stack.push(n2);
+        ctx.stack.push(n1);
+    },
+    rot(ctx) {
+        const n3 = ctx.stack.pop();
+        const n2 = ctx.stack.pop();
+        const n1 = ctx.stack.pop();
+        ctx.stack.push(n2);
+        ctx.stack.push(n3);
+        ctx.stack.push(n1);
+    }
 }
 
 /** 
@@ -572,51 +686,98 @@ function stringToBlock(str) {
     return message;
 }
 
-function dJSContext(scope, stack) {
-    let ctx = {
+/**
+ * A JS Context frame.
+ * @param {dBlock} block Block with messages and embedded objects
+ * @param {Array<dObject>} scope Scope-Stack
+ * @param {Array<dObject>} stack Value-stack
+ * @returns {dJSContext}
+ */
+function dJSContextFrame(block, scope, stack) {
+    const ctx = {
+        /** The frame container (pretty much just an array) */
+        frameContainer: null,
+        /** The primary block being executed */
+        block,
+        /** The value stack */
         stack: stack || [],
+        /** The scope-stack of the current execution context */
         scope: scope || [ dBase() ],
+        /** Records the point of execution of the currently executed block*/
         messageStack: [],
-        messageStackPosition: []
     };
     return ctx;
 }
 
-function executeBlock(block, context, isParamaterized) {
-    let ctx = context;
-    const message = block;
-    message.stopped = false;
-    function scopedMessage(message, scopePosition, scopePop, isParamaterized = false) {
-        if (isParamaterized) applyParams(ctx, message, "@@");
-        return {
-            scopePosition,
-            message, 
-            scopePop
-        };
-    }
-    // Apply values for @@<identifier>
-    ctx.messageStack.push(scopedMessage(message, context.scope.length - 1, false, isParamaterized));
-    ctx.messageStackPosition.push(0);
-    while (ctx.messageStack.length > 0 && !message.stopped) {
-        const scoped = ctx.messageStack[ctx.messageStack.length - 1];
-        const block = scoped.message;
-        const scope = scoped.scopePosition;
+function dJSContextContainer(frame) {
+    const container = [frame];
+    frame.frameContainer = container;
+    return container;
+}
 
-        if (block.blockContent.length == ctx.messageStackPosition[ctx.messageStackPosition.length - 1]) {
+/**
+ * Helper to define a scoped message. A scoped message is a *block* of messages being walked over from within the context of 
+ * the primary executed block. Sort of like a "sub-context".
+ * @param {dJSContext} ctx the current context
+ * @param {dObject|dBlock} block The block being walked into
+ * @param {Number} scopePosition Context of the scope in which this block is being interpreted relative from
+ * @param {boolean} scopePop Whether or not to mutate the scope (remove from) after it's done
+ * @param {number} messagePosition Position in messages being walked over of the current block
+ * @param {boolean} isParamaterized Whether or not to parameterize the current block of messages
+ * @returns {ScopedMessage}
+ */
+function scopedMessage(ctx, block, scopePosition, scopePop, messagePosition, isParamaterized = false) {
+    if (isParamaterized) applyParams(ctx, block, "@@");
+    return {
+        scopePosition,
+        block, 
+        scopePop,
+        messagePosition
+    };
+}
+
+/**
+ * Initiates execution
+ * @param {Array<dJSContext>} contextContainer Container of context frames
+ * @param {boolean} isParamaterized whether or not this block is parameterized
+ */
+function executeStart(contextContainer, isParamaterized) {
+    let ctx = contextContainer[contextContainer.length - 1];
+    const block = ctx.block;
+    block.stopped = false;
+    ctx.messageStack.push(scopedMessage(ctx, block, ctx.scope.length - 1, false, 0, isParamaterized));
+    execute(contextContainer, false);
+}
+
+/**
+ * Continues execution of a context frame container
+ * @param {Array<dJSContext>} contextContainer container of contexts 
+ * @param {boolean} runFrames Whether or not to manually run and destack (which would normally happen automatically)
+ * @returns {void}
+ */
+function execute(contextContainer, runFrames = false) {
+    let ctx = contextContainer[contextContainer.length - 1];
+    while (ctx.messageStack.length > 0 && !block.stopped) {
+        const scoped = ctx.messageStack[ctx.messageStack.length - 1];
+        const block = scoped.block;
+        const scope = scoped.scopePosition;
+        const messagePosition = scoped.messagePosition;
+
+        // If we've reached the end of the currently scoped block's length of messages pop it off the message stack
+        if (block.blockContent.length == messagePosition) {
             ctx.messageStack.pop();
-            ctx.messageStackPosition.pop();
             if (scoped.scopePop) {
                 ctx.scope.pop();
             }
         } else {
 
             // obj could be another block, a primitive, or a message
-            const obj = block.blockContent[ctx.messageStackPosition[ctx.messageStackPosition.length - 1]];
+            const obj = block.blockContent[messagePosition];
             // console.log(obj); // Prints out the messages
             // console.log("stack is:", [].concat(ctx.stack));
             
             // increase the message position for the current stack by 1
-            ctx.messageStackPosition[ctx.messageStackPosition.length - 1] = ctx.messageStackPosition[ctx.messageStackPosition.length - 1] + 1;
+            scoped.messagePosition ++;
 
             // we've encountered a block (potentially a block of messages and more blocks)
             // that means we get the next object from the value stack and put it in scope
@@ -628,33 +789,48 @@ function executeBlock(block, context, isParamaterized) {
                 // (magic) if nextObj has onBody then we put the stepped onto block on to the value stack 
                 if (nextObj.onBody !== null) {
                     // instead of entering the obj for processing messages we process the onBody block for processing blocks
-                    ctx.messageStack.push(scopedMessage(nextObj.onBody, ctx.scope.length - 1, true, true));
-                    ctx.messageStackPosition.push(0);
+                    ctx.messageStack.push(scopedMessage(ctx, nextObj.onBody, ctx.scope.length - 1, true, 0, true));
                     ctx.stack.push(obj);
                 } 
                 // otherwise, we just enter a new scoped message (which is basically entering a block, hence putting on to the message stack and stack position)
                 else {
-                    ctx.messageStack.push(scopedMessage(obj, ctx.scope.length - 1, true, false));
-                    ctx.messageStackPosition.push(0);
+                    ctx.messageStack.push(scopedMessage(ctx, obj, ctx.scope.length - 1, true, 0, false));
                 }
             } 
             // perform primitive
-            else if (obj.type === types.PRIMITIVE) { obj.primitive(ctx); } 
+            else if (obj.type === types.PRIMITIVE) { 
+                switch(obj.numberVal) {
+                    // Interperter based message
+                    case prim.BLOCK_RUN: {
+                        var nextBlock = ctx.stack.pop();
+                        var nestedCtx = dJSContextFrame(nextBlock);
+                        contextContainer.push(nestedCtx);
+                        executeStart(contextContainer, true);
+                        ctx.stack.concat(nestedCtx.stack);
+                        
+                    } break;
+                    // Interpreter based message
+                    case prim.BLOCK_RUN_CURRENT: {
+                        var nextBlock = ctx.stack.pop();
+                        contextContainer.push(dJSContextFrame(nextBlock, ctx.scope, ctx.stack));
+                        executeStart(contextContainer, true);
+                    } break;
+                    default: executePrimitive(ctx, obj);
+                }
+            } 
             // interpret message (if not null)
             else if (obj.type === types.MESSAGE) {
                 if (!obj.nullMessage) {
                     for (var i = scope; i >= 0; i--) {
                         // if the interface responds to the message's value (string val) then we enter 
                         if (ctx.scope[i].interface.hasOwnProperty(obj.stringVal)) {
-                            ctx.messageStack.push(scopedMessage(ctx.scope[i].interface[obj.stringVal], i, false, true));
-                            ctx.messageStackPosition.push(0);
+                            ctx.messageStack.push(scopedMessage(ctx, ctx.scope[i].interface[obj.stringVal], i, false, 0, true));
                             break;
                         } 
                         // The interface may be able to respond to messages it does not know
                         else if (ctx.scope[i].doesNotUnderstand !== null) {
                             ctx.stack.push(obj);
-                            ctx.messageStack.push(scopedMessage(ctx.scope[i].doesNotUnderstand, i, false, true));
-                            ctx.messageStackPosition.push(0);
+                            ctx.messageStack.push(scopedMessage(ctx, ctx.scope[i].doesNotUnderstand, i, false, 0, true));
                         }
                     }
                 }
@@ -664,7 +840,8 @@ function executeBlock(block, context, isParamaterized) {
             }
         }
     }
-    return ctx;
+    contextContainer.pop();
+    if (runFrames) { execute(contextContainer, runFrames); }
 }
 
 var code = `
@@ -698,6 +875,13 @@ proto [
     5 swap [ run/current ] ![ prints nothing cause 5 + 5 = 10 ]
 ]
 `;
+/*
+    code 3 should print:
+    12 
+    4
+    5
+    6
+*/
 const code3 = `
 proto [
     12 : [ @twelve 
@@ -749,6 +933,6 @@ console [
     say say say
 ]
 `;
-var block = stringToBlock(code2);
+var block = stringToBlock(code3);
 // console.log(block);
 block.extern.run();
