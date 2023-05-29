@@ -155,7 +155,7 @@ function dBlock(val) {
     function dControl() {
         let ctrl = dObject();
         ctrl.interface = {
-            "stop": dInterface([obj, dPrimitive(prim.BLOCK_CONTROL_STOP)])
+            "stop": dInterface([dSingleQuoteObject(), obj, dPrimitive(prim.BLOCK_CONTROL_STOP)])
         };
         return ctrl;
     }
@@ -705,6 +705,8 @@ function dJSContextFrame(block, scope, stack) {
         scope: scope || [ dBase() ],
         /** Records the point of execution of the currently executed block*/
         messageStack: [],
+        /** Merges the current stack with the value stack below */
+        mergeStack: false,
     };
     return ctx;
 }
@@ -757,7 +759,8 @@ function executeStart(contextContainer, isParamaterized) {
  */
 function execute(contextContainer, runFrames = false) {
     let ctx = contextContainer[contextContainer.length - 1];
-    while (ctx.messageStack.length > 0 && !block.stopped) {
+    const runningBlock = ctx.block;
+    while (ctx.messageStack.length > 0 && !runningBlock.stopped) {
         const scoped = ctx.messageStack[ctx.messageStack.length - 1];
         const block = scoped.block;
         const scope = scoped.scopePosition;
@@ -804,10 +807,9 @@ function execute(contextContainer, runFrames = false) {
                     case prim.BLOCK_RUN: {
                         var nextBlock = ctx.stack.pop();
                         var nestedCtx = dJSContextFrame(nextBlock);
+                        nestedCtx.mergeStack = true;
                         contextContainer.push(nestedCtx);
                         executeStart(contextContainer, true);
-                        ctx.stack.concat(nestedCtx.stack);
-                        
                     } break;
                     // Interpreter based message
                     case prim.BLOCK_RUN_CURRENT: {
@@ -841,7 +843,14 @@ function execute(contextContainer, runFrames = false) {
         }
     }
     contextContainer.pop();
-    if (runFrames) { execute(contextContainer, runFrames); }
+    if (contextContainer.length > 0) {
+        // Merge stacks
+        if (ctx.mergeStack) {
+            var ctxBelow = contextContainer[contextContainer.length - 1];
+            ctxBelow.stack.concat(ctx.stack);
+        }
+        if (runFrames) { execute(contextContainer, runFrames); }
+    }
 }
 
 var code = `
@@ -872,6 +881,7 @@ proto [
     ]
     dup 
     3 swap [ run/current ] ![ prints "isn't 10: 8"]
+    "hello" console [ say ]
     5 swap [ run/current ] ![ prints nothing cause 5 + 5 = 10 ]
 ]
 `;
@@ -933,6 +943,9 @@ console [
     say say say
 ]
 `;
-var block = stringToBlock(code3);
-// console.log(block);
-block.extern.run();
+
+(()=>{
+    var block = stringToBlock(code2);
+    // console.log(block);
+    block.extern.run();
+})();

@@ -1,6 +1,6 @@
 
 # TODO
-- Option&Flag to merge the value stack from top frame to bottom frame after completed execution
+- [x] Option&Flag to merge the value stack from top frame to bottom frame after completed execution
 - [x] Steal the value stack from context
     - also operations:
         - open the current stack on top of the current stack
@@ -11,7 +11,8 @@
     - ability (operation) to stack scopes
 - loops
 - prototypes for protos
-
+- Arrays implementation (array is an object, that uses block content, that has an interface with special primitives)
+- Strings implementation
 - Support other string syntax + quote escapes
 
 - onBody should really just be an interface message
@@ -30,6 +31,7 @@
 - Create a repl
 - Create and load images
 - exceptions / exception handling
+- Debugging
 
 
 - asynchronous callbacks
